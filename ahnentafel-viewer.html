@@ -1,0 +1,1494 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ahnentafel Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <style>
+        :root {
+            --bg: #f3efe7;
+            --bg-accent: #e7dccb;
+            --panel: rgba(255, 252, 246, 0.88);
+            --panel-strong: rgba(255, 250, 241, 0.97);
+            --text: #26221d;
+            --muted: #6d655c;
+            --line: rgba(88, 72, 53, 0.26);
+            --line-strong: rgba(88, 72, 53, 0.42);
+            --accent: #8a5a35;
+            --accent-soft: #d9bf9f;
+            --shadow: 0 18px 50px rgba(66, 50, 31, 0.15);
+            --radius: 22px;
+            --card-width: 280px;
+            --column-gap: 110px;
+            --leaf-unit: 72px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            font-family: "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 38%),
+                radial-gradient(circle at bottom right, rgba(217, 191, 159, 0.35), transparent 30%),
+                linear-gradient(140deg, var(--bg) 0%, #efe7db 46%, #f8f3eb 100%);
+        }
+
+        body {
+            padding: 28px;
+            overflow-x: hidden;
+        }
+
+        .shell {
+            width: 100%;
+            max-width: none;
+            margin: 0 auto;
+            display: grid;
+            gap: 18px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(280px, 1.15fr) minmax(260px, 0.85fr);
+            gap: 18px;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(18px);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
+            min-width: 0;
+        }
+
+        .intro {
+            padding: 28px 30px;
+        }
+
+        .eyebrow {
+            margin: 0 0 10px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            font-size: 0.78rem;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(2rem, 4vw, 3.4rem);
+            line-height: 0.96;
+            letter-spacing: -0.04em;
+            font-weight: 750;
+            max-width: 11ch;
+        }
+
+        .lead {
+            margin: 18px 0 0;
+            font-size: 1rem;
+            line-height: 1.65;
+            color: var(--muted);
+            max-width: 62ch;
+        }
+
+        .actions {
+            padding: 22px;
+            display: grid;
+            gap: 14px;
+            align-content: start;
+        }
+
+        .upload-box {
+            padding: 18px;
+            border-radius: 22px;
+            background: var(--panel-strong);
+            border: 1px solid rgba(138, 90, 53, 0.12);
+        }
+
+        .upload-box label {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #8a5a35, #ad7a54);
+            color: #fffdf9;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 12px 22px rgba(138, 90, 53, 0.24);
+        }
+
+        .upload-box input {
+            display: none;
+        }
+
+        .upload-hint,
+        .status,
+        .meta,
+        .zoom-controls {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .status {
+            min-height: 1.5em;
+        }
+
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 12px;
+            border-radius: 999px;
+            background: rgba(138, 90, 53, 0.08);
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .workspace {
+            padding: 16px;
+            background: rgba(255, 252, 246, 0.66);
+        }
+
+        .tree-shell {
+            position: relative;
+            min-width: 0;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 8px 16px;
+        }
+
+        .toolbar-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .generation-filter {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .generation-filter label {
+            white-space: nowrap;
+        }
+
+        .generation-filter select {
+            appearance: none;
+            border: 1px solid rgba(138, 90, 53, 0.16);
+            border-radius: 999px;
+            background: var(--panel-strong);
+            color: var(--text);
+            padding: 10px 38px 10px 14px;
+            font: inherit;
+            box-shadow: 0 8px 20px rgba(57, 43, 25, 0.08);
+            cursor: pointer;
+        }
+
+        .generation-filter select:disabled {
+            cursor: default;
+            opacity: 0.6;
+        }
+
+        .zoom-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .zoom-controls button {
+            appearance: none;
+            border: none;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: var(--panel-strong);
+            color: var(--text);
+            font-size: 1.15rem;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(57, 43, 25, 0.1);
+        }
+
+        .tree-scroll {
+            position: relative;
+            overflow: auto;
+            width: 100%;
+            max-width: 100%;
+            height: min(72vh, 980px);
+            border-radius: 24px;
+            background:
+                linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4)),
+                linear-gradient(90deg, rgba(138, 90, 53, 0.04) 0, rgba(138, 90, 53, 0.04) 1px, transparent 1px, transparent 100%);
+            background-size: auto, 40px 40px;
+            border: 1px solid rgba(138, 90, 53, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+
+        .tree-stage {
+            position: relative;
+            transform-origin: 0 0;
+            transition: transform 180ms ease;
+        }
+
+        .tree-svg {
+            position: absolute;
+            inset: 0;
+            overflow: visible;
+            pointer-events: none;
+        }
+
+        .slot {
+            position: absolute;
+            width: var(--card-width);
+            display: grid;
+            gap: 10px;
+        }
+
+        .slot-label {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: fit-content;
+            min-width: 56px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(38, 34, 29, 0.08);
+            color: var(--muted);
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+        }
+
+        details.person-card {
+            border-radius: var(--radius);
+            background: rgba(255, 253, 249, 0.96);
+            border: 1px solid rgba(138, 90, 53, 0.12);
+            box-shadow: 0 14px 30px rgba(61, 46, 27, 0.12);
+            overflow: hidden;
+            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+        }
+
+        details.person-card[open] {
+            transform: translateY(-3px);
+            box-shadow: 0 20px 36px rgba(61, 46, 27, 0.18);
+            border-color: rgba(138, 90, 53, 0.22);
+        }
+
+        details.person-card[open],
+        .slot:has(details[open]) {
+            z-index: 5;
+        }
+
+        details.person-card summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 16px 18px 18px;
+        }
+
+        details.person-card summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .card-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .person-name {
+            margin: 0;
+            font-size: 1.03rem;
+            line-height: 1.25;
+            font-weight: 750;
+        }
+
+        .person-name.compact {
+            font-size: 0.86rem;
+            line-height: 1.2;
+            font-weight: 700;
+        }
+
+        .person-sub {
+            margin: 8px 0 0;
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+
+        .toggle-chip {
+            flex: 0 0 auto;
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: rgba(138, 90, 53, 0.08);
+            color: var(--accent);
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .toggle-chip.compact {
+            width: 28px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border-radius: 50%;
+            font-size: 0.98rem;
+            letter-spacing: 0;
+            text-transform: none;
+        }
+
+        .person-card.compact summary {
+            padding: 12px 14px;
+        }
+
+        .person-card.compact .card-top {
+            align-items: center;
+        }
+
+        .card-body {
+            display: grid;
+            gap: 10px;
+            padding: 0 18px 18px;
+            border-top: 1px solid rgba(138, 90, 53, 0.1);
+            background: linear-gradient(180deg, rgba(250, 245, 237, 0.78), rgba(255, 253, 249, 0.96));
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .detail-item {
+            padding: 10px 12px;
+            border-radius: 16px;
+            background: rgba(138, 90, 53, 0.06);
+        }
+
+        .detail-item strong {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--muted);
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .detail-item span {
+            display: block;
+            line-height: 1.45;
+            font-size: 0.94rem;
+            word-break: break-word;
+        }
+
+        .empty {
+            display: grid;
+            place-items: center;
+            min-height: 320px;
+            padding: 26px;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        .empty strong {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text);
+            font-size: 1.1rem;
+        }
+
+        .legend {
+            padding: 0 8px 4px;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .minimap {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            width: 210px;
+            padding: 10px;
+            border-radius: 18px;
+            background: rgba(255, 250, 241, 0.92);
+            border: 1px solid rgba(138, 90, 53, 0.18);
+            box-shadow: 0 16px 28px rgba(66, 50, 31, 0.14);
+            backdrop-filter: blur(18px);
+            z-index: 6;
+        }
+
+        .minimap.is-hidden {
+            display: none;
+        }
+
+        .minimap-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+            color: var(--muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .minimap-canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            border-radius: 12px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(243, 239, 231, 0.95));
+            cursor: pointer;
+        }
+
+        .minimap-hint {
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 0.76rem;
+            line-height: 1.35;
+        }
+
+        @media (max-width: 980px) {
+            body {
+                padding: 18px;
+            }
+
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            .tree-scroll {
+                height: 70vh;
+            }
+
+            .minimap {
+                position: static;
+                width: 100%;
+                margin-top: 12px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <section class="hero">
+            <div class="panel intro">
+                <p class="eyebrow">Ahnentafel</p>
+                <h1>ODS hinein, Stammbaum heraus.</h1>
+                <p class="lead">Lade eine Tabelle mit den Spalten Nr, Vorname, Nachname, Geburtstag, Geburtsort,
+                    Religion, Beruf, Heirat am, Heirat in, Gestorben am, Gestorben in, Todesursache und Weiteres hoch.
+                    Leerzeilen werden ignoriert, gleiche Kekule-Nummern werden gemeinsam an derselben Position
+                    dargestellt.</p>
+            </div>
+
+            <div class="panel actions">
+                <div class="upload-box">
+                    <label for="fileInput">ODS-Datei auswahlen</label>
+                    <input id="fileInput" type="file" accept=".ods,.xlsx,.xls">
+                    <p class="upload-hint">Es wird immer das erste Tabellenblatt eingelesen. Die geoffnete HTML-Datei
+                        braucht Internetzugang, damit die Parser-Bibliothek geladen werden kann.</p>
+                </div>
+
+                <div id="status" class="status">Noch keine Datei geladen.</div>
+                <div id="meta" class="meta"></div>
+            </div>
+        </section>
+
+        <section class="panel workspace">
+            <div class="toolbar">
+                <div class="legend">Klick auf eine Personenkachel, um weitere Angaben aufzuklappen.</div>
+                <div class="toolbar-controls">
+                    <div class="generation-filter">
+                        <label for="generationLimit">Nur bis zu folgender Generation anzeigen:</label>
+                        <select id="generationLimit" disabled>
+                            <option value="">Alle</option>
+                        </select>
+                    </div>
+                    <div class="zoom-controls">
+                        <button id="zoomOut" type="button" aria-label="Zoom verkleinern">-</button>
+                        <span id="zoomLabel">100 %</span>
+                        <button id="zoomIn" type="button" aria-label="Zoom vergroessern">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tree-shell">
+                <div id="treeScroll" class="tree-scroll">
+                    <div id="treeStage" class="tree-stage">
+                        <svg id="treeSvg" class="tree-svg"></svg>
+                        <div id="treeSlots"></div>
+                    </div>
+                    <div id="emptyState" class="empty">
+                        <div>
+                            <strong>Noch kein Stammbaum sichtbar</strong>
+                            Lade eine ODS-Datei hoch, um die Ahnentafel aus dem ersten Tabellenblatt zu visualisieren.
+                        </div>
+                    </div>
+                </div>
+                <aside id="minimap" class="minimap is-hidden" aria-label="Minimap der Ahnentafel">
+                    <div class="minimap-header">
+                        <span>Minimap</span>
+                        <span id="minimapScale">100 %</span>
+                    </div>
+                    <canvas id="minimapCanvas" class="minimap-canvas" width="210" height="160"></canvas>
+                    <div class="minimap-hint">Klick in die Minimap, um direkt zu einer Position im Baum zu springen.
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const statusNode = document.getElementById('status');
+        const metaNode = document.getElementById('meta');
+        const emptyState = document.getElementById('emptyState');
+        const treeStage = document.getElementById('treeStage');
+        const treeSvg = document.getElementById('treeSvg');
+        const treeSlots = document.getElementById('treeSlots');
+        const treeScroll = document.getElementById('treeScroll');
+        const minimap = document.getElementById('minimap');
+        const minimapCanvas = document.getElementById('minimapCanvas');
+        const minimapScaleNode = document.getElementById('minimapScale');
+        const generationLimitSelect = document.getElementById('generationLimit');
+        const zoomInButton = document.getElementById('zoomIn');
+        const zoomOutButton = document.getElementById('zoomOut');
+        const zoomLabel = document.getElementById('zoomLabel');
+
+        const COLUMN_WIDTH = 264;
+        const COLUMN_GAP = 82;
+        const LEAF_UNIT = 58;
+        const PADDING_X = 80;
+        const PADDING_Y = 80;
+        const CARD_GAP = 10;
+        const CARD_ESTIMATE = 142;
+        const COMPACT_GENERATION = 6;
+        const MIN_SCALE = 0.3;
+        const MAX_SCALE = 1.5;
+        const SCALE_STEP = 0.1;
+        const MINIMAP_WIDTH = 210;
+        const MINIMAP_HEIGHT = 160;
+
+        let scale = 1;
+        let currentTree = null;
+        let minimapState = null;
+        let loadedWorkbookData = null;
+        let currentGenerationLimit = null;
+
+        const fieldLabels = {
+            geburtsort: 'Geburtsort',
+            religion: 'Religion',
+            beruf: 'Beruf',
+            heiratAm: 'Heirat am',
+            heiratIn: 'Heirat in',
+            gestorbenAm: 'Gestorben am',
+            gestorbenIn: 'Gestorben in',
+            todesursache: 'Todesursache',
+            weiteres: 'Weiteres'
+        };
+
+        function normalizeHeader(value) {
+            return String(value || '')
+                .trim()
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ');
+        }
+
+        function normalizeCell(value) {
+            return String(value == null ? '' : value).trim();
+        }
+
+        function isBlankRow(row) {
+            return row.every((cell) => normalizeCell(cell) === '');
+        }
+
+        function cellToText(cell) {
+            if (cell == null) {
+                return '';
+            }
+
+            if (typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean') {
+                return String(cell).trim();
+            }
+
+            if (cell instanceof Date) {
+                return cell.toLocaleDateString('de-DE');
+            }
+
+            if (typeof cell === 'object') {
+                if (typeof cell.w === 'string') {
+                    return cell.w.trim();
+                }
+
+                if (cell.v == null) {
+                    return '';
+                }
+
+                if (cell.t === 'd' && cell.v instanceof Date) {
+                    return cell.v.toLocaleDateString('de-DE');
+                }
+
+                if (Array.isArray(cell.v)) {
+                    return cell.v.map((entry) => cellToText(entry)).filter(Boolean).join(' ').trim();
+                }
+
+                if (typeof cell.v === 'object') {
+                    try {
+                        return JSON.stringify(cell.v).trim();
+                    } catch (error) {
+                        return String(cell.v).trim();
+                    }
+                }
+
+                return String(cell.v).trim();
+            }
+
+            return String(cell).trim();
+        }
+
+        function getAttributeByLocalName(node, localName) {
+            if (!node || !node.attributes) {
+                return '';
+            }
+
+            const attribute = Array.from(node.attributes).find((item) => item.localName === localName);
+            return attribute ? attribute.value : '';
+        }
+
+        function childElementsByLocalName(node, localName) {
+            return Array.from(node?.children || []).filter((child) => child.localName === localName);
+        }
+
+        function descendantElementsByLocalName(node, localName) {
+            return Array.from(node?.getElementsByTagName('*') || []).filter((child) => child.localName === localName);
+        }
+
+        function parseOdsCell(cellNode) {
+            if (!cellNode || cellNode.localName === 'covered-table-cell') {
+                return '';
+            }
+
+            const valueType = getAttributeByLocalName(cellNode, 'value-type');
+            if (valueType === 'error') {
+                return '';
+            }
+
+            const paragraphs = descendantElementsByLocalName(cellNode, 'p');
+            const textValue = paragraphs.map((paragraph) => paragraph.textContent.trim()).filter(Boolean).join(' ').trim();
+            if (textValue) {
+                return textValue;
+            }
+
+            if (valueType === 'date') {
+                return getAttributeByLocalName(cellNode, 'date-value') || getAttributeByLocalName(cellNode, 'string-value');
+            }
+
+            if (valueType === 'float') {
+                return getAttributeByLocalName(cellNode, 'value') || getAttributeByLocalName(cellNode, 'string-value');
+            }
+
+            if (valueType === 'boolean') {
+                return getAttributeByLocalName(cellNode, 'boolean-value');
+            }
+
+            return getAttributeByLocalName(cellNode, 'string-value');
+        }
+
+        function parseOdsRow(rowNode, columnLimit) {
+            const row = [];
+            const cellNodes = Array.from(rowNode?.children || []).filter((child) => child.localName === 'table-cell' || child.localName === 'covered-table-cell');
+
+            for (const cellNode of cellNodes) {
+                const repeatCount = Math.max(1, Number.parseInt(getAttributeByLocalName(cellNode, 'number-columns-repeated') || '1', 10) || 1);
+                const cellValue = parseOdsCell(cellNode);
+                const availableColumns = columnLimit - row.length;
+
+                if (availableColumns <= 0) {
+                    break;
+                }
+
+                const repetitions = Math.min(repeatCount, availableColumns);
+                for (let index = 0; index < repetitions; index += 1) {
+                    row.push(cellValue);
+                }
+            }
+
+            return row;
+        }
+
+        function extractPeopleFromMatrix(matrix, firstSheetName) {
+            const headerRowIndex = matrix.findIndex((row) => Array.isArray(row) && !isBlankRow(row));
+            if (headerRowIndex === -1) {
+                throw new Error('Im ersten Tabellenblatt wurde keine Kopfzeile gefunden.');
+            }
+
+            const headers = matrix[headerRowIndex];
+            const indexMap = getHeaderIndexMap(headers);
+            const requiredColumns = ['nr', 'vorname', 'nachname'];
+            const missingColumns = requiredColumns.filter((column) => !(column in indexMap));
+
+            if (missingColumns.length) {
+                throw new Error('Mindestens die Spalten Nr, Vorname und Nachname muessen vorhanden sein.');
+            }
+
+            const rows = matrix.slice(headerRowIndex + 1);
+            const people = [];
+
+            rows.forEach((row) => {
+                if (!Array.isArray(row) || isBlankRow(row)) {
+                    return;
+                }
+
+                const nrRaw = normalizeCell(row[indexMap.nr]);
+                if (!nrRaw) {
+                    return;
+                }
+
+                const nr = Number.parseInt(nrRaw, 10);
+                if (!Number.isFinite(nr) || nr < 1) {
+                    return;
+                }
+
+                const person = {
+                    nr,
+                    vorname: normalizeCell(row[indexMap.vorname]),
+                    nachname: normalizeCell(row[indexMap.nachname]),
+                    geburtstag: normalizeCell(row[indexMap.geburtstag]),
+                    geburtsort: normalizeCell(row[indexMap.geburtsort]),
+                    religion: normalizeCell(row[indexMap.religion]),
+                    beruf: normalizeCell(row[indexMap.beruf]),
+                    heiratAm: normalizeCell(row[indexMap.heiratAm]),
+                    heiratIn: normalizeCell(row[indexMap.heiratIn]),
+                    gestorbenAm: normalizeCell(row[indexMap.gestorbenAm]),
+                    gestorbenIn: normalizeCell(row[indexMap.gestorbenIn]),
+                    todesursache: normalizeCell(row[indexMap.todesursache]),
+                    weiteres: normalizeCell(row[indexMap.weiteres])
+                };
+
+                const hasSubstance = Object.values(person).some((value) => value !== '' && value !== nr);
+                if (hasSubstance) {
+                    people.push(person);
+                }
+            });
+
+            if (!people.length) {
+                throw new Error('Keine verwertbaren Datensaetze im ersten Tabellenblatt gefunden.');
+            }
+
+            return { firstSheetName, people };
+        }
+
+        async function parseOdsWorkbook(file) {
+            if (!window.JSZip) {
+                throw new Error('Die ODS-Bibliothek konnte nicht geladen werden. Bitte Datei mit Internetzugang oeffnen.');
+            }
+
+            const buffer = await file.arrayBuffer();
+            const zip = await JSZip.loadAsync(buffer);
+            const contentFile = zip.file('content.xml');
+
+            if (!contentFile) {
+                throw new Error('Die ODS-Datei enthaelt keine content.xml.');
+            }
+
+            const contentXml = await contentFile.async('string');
+            const documentXml = new DOMParser().parseFromString(contentXml, 'application/xml');
+            const parseError = documentXml.querySelector('parsererror');
+
+            if (parseError) {
+                throw new Error('Die ODS-Datei konnte nicht als XML gelesen werden.');
+            }
+
+            const spreadsheet = descendantElementsByLocalName(documentXml, 'spreadsheet')[0];
+            const firstTable = childElementsByLocalName(spreadsheet, 'table')[0];
+
+            if (!firstTable) {
+                throw new Error('Im ersten Tabellenblatt konnten keine Daten gefunden werden.');
+            }
+
+            const firstSheetName = getAttributeByLocalName(firstTable, 'name') || 'Tabelle 1';
+            const rowNodes = childElementsByLocalName(firstTable, 'table-row');
+            const matrix = [];
+            const columnLimit = 32;
+
+            rowNodes.forEach((rowNode) => {
+                const row = parseOdsRow(rowNode, columnLimit);
+                const repeatCount = Math.max(1, Number.parseInt(getAttributeByLocalName(rowNode, 'number-rows-repeated') || '1', 10) || 1);
+
+                if (repeatCount === 1) {
+                    matrix.push(row);
+                    return;
+                }
+
+                if (isBlankRow(row)) {
+                    matrix.push(row);
+                    return;
+                }
+
+                for (let index = 0; index < repeatCount; index += 1) {
+                    matrix.push([...row]);
+                }
+            });
+
+            return extractPeopleFromMatrix(matrix, firstSheetName);
+        }
+
+        function sheetToMatrix(sheet) {
+            if (!sheet || !sheet['!ref']) {
+                return [];
+            }
+
+            const range = XLSX.utils.decode_range(sheet['!ref']);
+            const matrix = [];
+
+            for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
+                const row = [];
+
+                for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+                    const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+                    row.push(cellToText(sheet[address]));
+                }
+
+                matrix.push(row);
+            }
+
+            return matrix;
+        }
+
+        function getHeaderIndexMap(headers) {
+            const aliasMap = {
+                nr: 'nr',
+                vorname: 'vorname',
+                nachname: 'nachname',
+                geburtstag: 'geburtstag',
+                geburtsort: 'geburtsort',
+                religion: 'religion',
+                beruf: 'beruf',
+                'heirat am': 'heiratAm',
+                'heirat in': 'heiratIn',
+                'gestorben am': 'gestorbenAm',
+                'gestorben in': 'gestorbenIn',
+                todesursache: 'todesursache',
+                weiteres: 'weiteres'
+            };
+
+            return headers.reduce((map, header, index) => {
+                const key = aliasMap[normalizeHeader(header)];
+                if (key) {
+                    map[key] = index;
+                }
+                return map;
+            }, {});
+        }
+
+        function formatName(person) {
+            const pieces = [person.vorname, person.nachname].filter(Boolean);
+            return pieces.length ? pieces.join(' ') : 'Unbekannter Eintrag';
+        }
+
+        function formatLifeLine(person) {
+            const birth = person.geburtstag ? 'geb. ' + person.geburtstag : 'geb. -';
+            const death = person.gestorbenAm ? 'gest. ' + person.gestorbenAm : 'gest. -';
+            return birth + ' / ' + death;
+        }
+
+        function isCompactGeneration(generation) {
+            return generation >= COMPACT_GENERATION;
+        }
+
+        function cardEstimateForGeneration(generation) {
+            return isCompactGeneration(generation) ? 64 : CARD_ESTIMATE;
+        }
+
+        function detailEntries(person) {
+            return Object.entries(fieldLabels)
+                .map(([key, label]) => ({ label, value: person[key] }))
+                .filter((entry) => entry.value);
+        }
+
+        function generationOf(number) {
+            return Math.floor(Math.log2(number)) + 1;
+        }
+
+        function indexWithinGeneration(number, generation) {
+            return number - Math.pow(2, generation - 1);
+        }
+
+        function centerYFor(number, maxGeneration, leafUnit) {
+            const generation = generationOf(number);
+            const index = indexWithinGeneration(number, generation);
+            const spacingFactor = Math.pow(2, maxGeneration - generation);
+            return ((index * 2) + 1) * leafUnit * spacingFactor;
+        }
+
+        function widthForGeneration(generation, maxGeneration) {
+            const depth = Math.max(generation - 1, 0);
+            const maxDepth = Math.max(maxGeneration - 1, 1);
+            const progress = depth / maxDepth;
+            const compressedWidth = COLUMN_WIDTH - (progress * 78);
+            return Math.max(186, Math.round(compressedWidth));
+        }
+
+        function gapAfterGeneration(generation, maxGeneration) {
+            const depth = Math.max(generation - 1, 0);
+            const maxDepth = Math.max(maxGeneration - 1, 1);
+            const progress = depth / maxDepth;
+            const compressedGap = COLUMN_GAP - (progress * 44);
+            return Math.max(34, Math.round(compressedGap));
+        }
+
+        function buildGenerationMetrics(maxGeneration) {
+            const metrics = [];
+            let offsetX = PADDING_X;
+
+            for (let generation = 1; generation <= maxGeneration; generation += 1) {
+                const width = widthForGeneration(generation, maxGeneration);
+                const gap = generation < maxGeneration ? gapAfterGeneration(generation, maxGeneration) : 0;
+
+                metrics.push({ generation, width, gap, x: offsetX });
+                offsetX += width + gap;
+            }
+
+            return metrics;
+        }
+
+        function maxGenerationOfPeople(people) {
+            if (!people.length) {
+                return 0;
+            }
+
+            return Math.max(...people.map((person) => generationOf(person.nr)));
+        }
+
+        function setStatus(message, isError = false) {
+            statusNode.textContent = message;
+            statusNode.style.color = isError ? '#8f2d21' : 'var(--muted)';
+        }
+
+        function setMeta(items) {
+            metaNode.innerHTML = '';
+            items.forEach((item) => {
+                const pill = document.createElement('span');
+                pill.className = 'pill';
+                pill.textContent = item;
+                metaNode.appendChild(pill);
+            });
+        }
+
+        function updateZoomLabel() {
+            zoomLabel.textContent = Math.round(scale * 100) + ' %';
+            treeStage.style.transform = 'scale(' + scale + ')';
+            if (minimapScaleNode) {
+                minimapScaleNode.textContent = Math.round(scale * 100) + ' %';
+            }
+            updateMinimapViewport();
+        }
+
+        function zoomBy(delta) {
+            scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Number((scale + delta).toFixed(2))));
+            updateZoomLabel();
+        }
+
+        zoomInButton.addEventListener('click', () => zoomBy(SCALE_STEP));
+        zoomOutButton.addEventListener('click', () => zoomBy(-SCALE_STEP));
+        updateZoomLabel();
+
+        async function parseBinaryWorkbook(file) {
+            if (!window.XLSX) {
+                throw new Error('Die Parser-Bibliothek konnte nicht geladen werden. Bitte Datei mit Internetzugang oeffnen.');
+            }
+
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(new Uint8Array(buffer), {
+                type: 'array',
+                raw: false,
+                cellText: true,
+                cellDates: true
+            });
+            const firstSheetName = workbook.SheetNames[0];
+
+            if (!firstSheetName) {
+                throw new Error('Die Datei enthaelt kein Tabellenblatt.');
+            }
+
+            const sheet = workbook.Sheets[firstSheetName];
+            const matrix = sheetToMatrix(sheet);
+
+            return extractPeopleFromMatrix(matrix, firstSheetName);
+        }
+
+        async function parseWorkbook(file) {
+            const lowerName = file.name.toLowerCase();
+
+            if (lowerName.endsWith('.ods')) {
+                return parseOdsWorkbook(file);
+            }
+
+            return parseBinaryWorkbook(file);
+        }
+
+        function buildTreeData(people, generationLimit = null) {
+            const grouped = new Map();
+
+            const visiblePeople = generationLimit == null
+                ? people
+                : people.filter((person) => generationOf(person.nr) <= generationLimit);
+
+            visiblePeople.forEach((person) => {
+                if (!grouped.has(person.nr)) {
+                    grouped.set(person.nr, []);
+                }
+                grouped.get(person.nr).push(person);
+            });
+
+            const numbers = Array.from(grouped.keys()).sort((a, b) => a - b);
+            if (!numbers.length) {
+                throw new Error('Mit der aktuellen Generationsgrenze sind keine Eintraege sichtbar.');
+            }
+
+            const maxGeneration = Math.max(...numbers.map(generationOf));
+            const generationMetrics = buildGenerationMetrics(maxGeneration);
+            const lastMetric = generationMetrics[generationMetrics.length - 1];
+            const deepestGenerationHeights = numbers
+                .filter((number) => generationOf(number) === maxGeneration)
+                .map((number) => {
+                    const persons = grouped.get(number);
+                    return persons.length * cardEstimateForGeneration(maxGeneration) + Math.max(persons.length - 1, 0) * CARD_GAP + 36;
+                });
+            const deepestGenerationHeight = deepestGenerationHeights.length
+                ? Math.max(...deepestGenerationHeights)
+                : cardEstimateForGeneration(maxGeneration) + 36;
+            const effectiveLeafUnit = Math.max(LEAF_UNIT, Math.ceil(deepestGenerationHeight / 2) + 8);
+            const stageWidth = lastMetric.x + lastMetric.width + PADDING_X;
+            const stageHeight = PADDING_Y * 2 + (Math.pow(2, maxGeneration) * effectiveLeafUnit);
+
+            const slots = numbers.map((number) => {
+                const generation = generationOf(number);
+                const generationMetric = generationMetrics[generation - 1];
+                const centerY = centerYFor(number, maxGeneration, effectiveLeafUnit) + PADDING_Y;
+                const persons = grouped.get(number);
+                const estimatedHeight = persons.length * cardEstimateForGeneration(generation) + Math.max(persons.length - 1, 0) * CARD_GAP + 36;
+
+                return {
+                    number,
+                    generation,
+                    width: generationMetric.width,
+                    centerY,
+                    x: generationMetric.x,
+                    y: Math.max(PADDING_Y / 2, centerY - estimatedHeight / 2),
+                    persons
+                };
+            });
+
+            const slotNumbers = new Set(numbers);
+            const links = numbers
+                .filter((number) => number > 1 && slotNumbers.has(Math.floor(number / 2)))
+                .map((number) => ({
+                    from: Math.floor(number / 2),
+                    to: number
+                }));
+
+            return { slots, links, stageWidth, stageHeight, maxGeneration, generationMetrics, effectiveLeafUnit };
+        }
+
+        function populateGenerationFilter(maxGeneration) {
+            generationLimitSelect.innerHTML = '';
+
+            for (let generation = 1; generation <= maxGeneration; generation += 1) {
+                const option = document.createElement('option');
+                option.value = String(generation);
+                option.textContent = String(generation);
+                generationLimitSelect.appendChild(option);
+            }
+
+            generationLimitSelect.value = String(maxGeneration);
+            generationLimitSelect.disabled = maxGeneration <= 1;
+            currentGenerationLimit = maxGeneration;
+        }
+
+        function renderCurrentTree() {
+            if (!loadedWorkbookData) {
+                return;
+            }
+
+            const treeData = buildTreeData(loadedWorkbookData.people, currentGenerationLimit);
+            renderTree(treeData);
+
+            setStatus('Datei erfolgreich verarbeitet.');
+            setMeta([
+                loadedWorkbookData.fileName,
+                loadedWorkbookData.firstSheetName,
+                loadedWorkbookData.people.length + ' Eintraege',
+                treeData.slots.length + ' Kekule-Positionen',
+                loadedWorkbookData.maxGeneration + ' Generationen gesamt',
+                'Anzeige bis Generation ' + currentGenerationLimit
+            ]);
+        }
+
+        function renderMinimap(treeData) {
+            if (!minimapCanvas) {
+                return;
+            }
+
+            const padding = 8;
+            const scaleX = (MINIMAP_WIDTH - padding * 2) / treeData.stageWidth;
+            const scaleY = (MINIMAP_HEIGHT - padding * 2) / treeData.stageHeight;
+
+            minimapState = {
+                scaleX,
+                scaleY,
+                offsetX: padding,
+                offsetY: padding,
+                stageWidth: treeData.stageWidth,
+                stageHeight: treeData.stageHeight
+            };
+
+            renderMinimapBase();
+            minimap.classList.remove('is-hidden');
+            updateMinimapViewport();
+        }
+
+        function updateMinimapViewport() {
+            if (!currentTree || !minimapCanvas || !minimapState) {
+                return;
+            }
+
+            const context = minimapCanvas.getContext('2d');
+            renderMinimapBase();
+
+            const viewportX = minimapState.offsetX + (treeScroll.scrollLeft / scale) * minimapState.scaleX;
+            const viewportY = minimapState.offsetY + (treeScroll.scrollTop / scale) * minimapState.scaleY;
+            const viewportWidth = (treeScroll.clientWidth / scale) * minimapState.scaleX;
+            const viewportHeight = (treeScroll.clientHeight / scale) * minimapState.scaleY;
+
+            context.save();
+            context.strokeStyle = 'rgba(31, 93, 77, 0.95)';
+            context.lineWidth = 2;
+            context.fillStyle = 'rgba(31, 93, 77, 0.12)';
+            context.fillRect(viewportX, viewportY, viewportWidth, viewportHeight);
+            context.strokeRect(viewportX, viewportY, viewportWidth, viewportHeight);
+            context.restore();
+        }
+
+        function renderMinimapBase() {
+            if (!currentTree || !minimapCanvas || !minimapState) {
+                return;
+            }
+
+            const context = minimapCanvas.getContext('2d');
+            const { offsetX, offsetY, scaleX, scaleY } = minimapState;
+
+            context.clearRect(0, 0, MINIMAP_WIDTH, MINIMAP_HEIGHT);
+            context.fillStyle = 'rgba(255, 250, 241, 0.95)';
+            context.fillRect(0, 0, MINIMAP_WIDTH, MINIMAP_HEIGHT);
+
+            context.save();
+            context.translate(offsetX, offsetY);
+            context.scale(scaleX, scaleY);
+
+            context.strokeStyle = 'rgba(88, 72, 53, 0.2)';
+            context.lineWidth = 2 / Math.min(scaleX, scaleY);
+            currentTree.links.forEach((link) => {
+                const fromSlot = currentTree.slots.find((slot) => slot.number === link.from);
+                const toSlot = currentTree.slots.find((slot) => slot.number === link.to);
+                if (!fromSlot || !toSlot) {
+                    return;
+                }
+
+                context.beginPath();
+                context.moveTo(fromSlot.x + fromSlot.width, fromSlot.centerY);
+                context.lineTo(toSlot.x, toSlot.centerY);
+                context.stroke();
+            });
+
+            currentTree.slots.forEach((slot) => {
+                const slotHeight = Math.max(14, slot.persons.length * cardEstimateForGeneration(slot.generation) * 0.48);
+                context.fillStyle = isCompactGeneration(slot.generation) ? 'rgba(138, 90, 53, 0.46)' : 'rgba(138, 90, 53, 0.72)';
+                context.fillRect(slot.x, slot.y + 22, slot.width, slotHeight);
+            });
+
+            context.restore();
+        }
+
+        function syncStageDimensions(treeData) {
+            treeStage.style.width = treeData.stageWidth + 'px';
+            treeStage.style.height = treeData.stageHeight + 'px';
+            treeSvg.setAttribute('width', String(treeData.stageWidth));
+            treeSvg.setAttribute('height', String(treeData.stageHeight));
+            treeSvg.setAttribute('viewBox', '0 0 ' + treeData.stageWidth + ' ' + treeData.stageHeight);
+        }
+
+        function drawTreeLinks(treeData) {
+            treeSvg.innerHTML = '';
+            const slotMap = new Map(treeData.slots.map((slot) => [slot.number, slot]));
+
+            treeData.links.forEach((link) => {
+                const fromSlot = slotMap.get(link.from);
+                const toSlot = slotMap.get(link.to);
+                if (!fromSlot || !toSlot) {
+                    return;
+                }
+
+                const x1 = fromSlot.x + fromSlot.width;
+                const y1 = fromSlot.centerY;
+                const x2 = toSlot.x;
+                const y2 = toSlot.centerY;
+                const horizontalDistance = Math.max(x2 - x1, 30);
+                const curveOffset = Math.max(18, horizontalDistance * 0.38);
+                const c1x = x1 + curveOffset;
+                const c2x = x2 - curveOffset;
+
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + c1x + ' ' + y1 + ', ' + c2x + ' ' + y2 + ', ' + x2 + ' ' + y2);
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke', 'rgba(88, 72, 53, 0.34)');
+                path.setAttribute('stroke-width', '2');
+                path.setAttribute('stroke-linecap', 'round');
+                treeSvg.appendChild(path);
+            });
+        }
+
+        function resolveSlotOverlaps(treeData) {
+            const slotsByGeneration = new Map();
+
+            treeData.slots.forEach((slot) => {
+                const slotNode = treeSlots.querySelector('[data-slot-number="' + slot.number + '"]');
+                if (!slotNode) {
+                    return;
+                }
+
+                const slotHeight = slotNode.getBoundingClientRect().height;
+                slot.height = slotHeight;
+                if (!slotsByGeneration.has(slot.generation)) {
+                    slotsByGeneration.set(slot.generation, []);
+                }
+                slotsByGeneration.get(slot.generation).push({ slot, slotNode });
+            });
+
+            let maxBottom = treeData.stageHeight - PADDING_Y;
+
+            slotsByGeneration.forEach((entries) => {
+                entries.sort((left, right) => left.slot.y - right.slot.y);
+                let nextTop = PADDING_Y / 2;
+
+                entries.forEach(({ slot, slotNode }) => {
+                    const slotSpacing = isCompactGeneration(slot.generation) ? CARD_GAP : CARD_GAP + 4;
+                    const adjustedTop = Math.max(slot.y, nextTop);
+                    slot.y = adjustedTop;
+                    slot.centerY = adjustedTop + (slot.height / 2);
+                    slotNode.style.top = adjustedTop + 'px';
+                    nextTop = adjustedTop + slot.height + slotSpacing;
+                    maxBottom = Math.max(maxBottom, adjustedTop + slot.height);
+                });
+            });
+
+            treeData.stageHeight = Math.max(treeData.stageHeight, maxBottom + PADDING_Y);
+            syncStageDimensions(treeData);
+        }
+
+        function renderTree(treeData) {
+            currentTree = treeData;
+            treeSlots.innerHTML = '';
+            treeSvg.innerHTML = '';
+            emptyState.style.display = 'none';
+
+            syncStageDimensions(treeData);
+
+            treeData.slots.forEach((slot) => {
+                const slotNode = document.createElement('div');
+                slotNode.className = 'slot';
+                slotNode.dataset.slotNumber = String(slot.number);
+                slotNode.style.left = slot.x + 'px';
+                slotNode.style.top = slot.y + 'px';
+                slotNode.style.width = slot.width + 'px';
+
+                const slotLabel = document.createElement('div');
+                slotLabel.className = 'slot-label';
+                slotLabel.textContent = 'Nr ' + slot.number;
+                slotNode.appendChild(slotLabel);
+
+                slot.persons.forEach((person) => {
+                    const details = document.createElement('details');
+                    details.className = 'person-card';
+                    const compactCard = isCompactGeneration(slot.generation);
+                    if (compactCard) {
+                        details.classList.add('compact');
+                    }
+
+                    const summary = document.createElement('summary');
+                    const compactName = formatName(person);
+                    summary.innerHTML = compactCard
+                        ? [
+                            '<div class="card-top">',
+                            '<div>',
+                            '<h3 class="person-name compact">' + escapeHtml(compactName) + '</h3>',
+                            '</div>',
+                            '<span class="toggle-chip compact" aria-hidden="true">+</span>',
+                            '</div>'
+                        ].join('')
+                        : [
+                            '<div class="card-top">',
+                            '<div>',
+                            '<h3 class="person-name">' + escapeHtml(compactName) + '</h3>',
+                            '<p class="person-sub">' + escapeHtml(formatLifeLine(person)) + '</p>',
+                            '</div>',
+                            '<span class="toggle-chip">Details</span>',
+                            '</div>'
+                        ].join('');
+
+                    const body = document.createElement('div');
+                    body.className = 'card-body';
+
+                    const detailsList = detailEntries(person);
+                    if (detailsList.length) {
+                        const grid = document.createElement('div');
+                        grid.className = 'detail-grid';
+
+                        detailsList.forEach((entry) => {
+                            const item = document.createElement('div');
+                            item.className = 'detail-item';
+                            item.innerHTML = '<strong>' + escapeHtml(entry.label) + '</strong><span>' + escapeHtml(entry.value) + '</span>';
+                            grid.appendChild(item);
+                        });
+
+                        body.appendChild(grid);
+                    } else {
+                        body.innerHTML = '<div class="detail-item"><strong>Hinweis</strong><span>Keine weiteren Angaben vorhanden.</span></div>';
+                    }
+
+                    details.appendChild(summary);
+                    details.appendChild(body);
+                    slotNode.appendChild(details);
+                });
+
+                treeSlots.appendChild(slotNode);
+            });
+
+            resolveSlotOverlaps(treeData);
+            drawTreeLinks(treeData);
+            renderMinimap(treeData);
+
+            requestAnimationFrame(() => {
+                treeScroll.scrollTo({ top: Math.max((treeData.stageHeight * scale - treeScroll.clientHeight) / 2, 0), left: 0, behavior: 'smooth' });
+            });
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        fileInput.addEventListener('change', async (event) => {
+            const file = event.target.files && event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            setStatus('Datei wird eingelesen ...');
+            setMeta([]);
+
+            try {
+                const workbookData = await parseWorkbook(file);
+                loadedWorkbookData = {
+                    ...workbookData,
+                    fileName: file.name,
+                    maxGeneration: maxGenerationOfPeople(workbookData.people)
+                };
+                populateGenerationFilter(loadedWorkbookData.maxGeneration);
+                renderCurrentTree();
+            } catch (error) {
+                loadedWorkbookData = null;
+                currentGenerationLimit = null;
+                currentTree = null;
+                minimapState = null;
+                treeSlots.innerHTML = '';
+                treeSvg.innerHTML = '';
+                treeStage.style.width = '100%';
+                treeStage.style.height = '0';
+                emptyState.style.display = 'grid';
+                minimap.classList.add('is-hidden');
+                generationLimitSelect.innerHTML = '<option value="">Alle</option>';
+                generationLimitSelect.disabled = true;
+                setStatus(error.message || 'Die Datei konnte nicht verarbeitet werden.', true);
+            }
+        });
+
+        generationLimitSelect.addEventListener('change', () => {
+            const nextLimit = Number.parseInt(generationLimitSelect.value, 10);
+            if (!Number.isFinite(nextLimit) || !loadedWorkbookData) {
+                return;
+            }
+
+            currentGenerationLimit = nextLimit;
+            renderCurrentTree();
+        });
+
+        treeScroll.addEventListener('scroll', () => {
+            updateMinimapViewport();
+        });
+
+        window.addEventListener('resize', () => {
+            updateMinimapViewport();
+        });
+
+        minimapCanvas.addEventListener('click', (event) => {
+            if (!currentTree || !minimapState) {
+                return;
+            }
+
+            const bounds = minimapCanvas.getBoundingClientRect();
+            const clickX = event.clientX - bounds.left;
+            const clickY = event.clientY - bounds.top;
+            const stageX = (clickX - minimapState.offsetX) / minimapState.scaleX;
+            const stageY = (clickY - minimapState.offsetY) / minimapState.scaleY;
+
+            treeScroll.scrollTo({
+                left: Math.max((stageX * scale) - (treeScroll.clientWidth / 2), 0),
+                top: Math.max((stageY * scale) - (treeScroll.clientHeight / 2), 0),
+                behavior: 'smooth'
+            });
+        });
+    </script>
+</body>
+
+</html>
